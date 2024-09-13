@@ -23,6 +23,7 @@ enum ConfirmState
 enum State
 {
   Start,
+  Settings,
   ChangeLanguage,
   CalibrateButtons,
   CalibrateWires,
@@ -92,63 +93,58 @@ void loop()
   {
   case Start:
   {
-    currentState = ChangeLanguage;
+    currentState = HergebruikInst;
+    break;
+  }
+  case Settings:
+  {
+    setSettingMode();
+    if (DEBUG)
+    {
+      Serial.println("Settings returned");
+      Serial.print("Next state is: ");
+      Serial.println(currentState);
+    }
     break;
   }
   case ChangeLanguage:
   {
     changeLanguageGetPreset(&address);
-    currentState = CalibrateButtons;
+    currentState = Settings;
     break;
   }
   case CalibrateButtons:
   {
-    s = waitForConfirm(languageDict[30][language]); // "Calibreer btns?"
-    if (s == Succes)
-    {
-      calibrateButtons();
-      currentState = CalibrateWires;
-    }
-    else if (s == Back)
-      currentState = ChangeLanguage;
-    else
-      currentState = CalibrateWires;
+    calibrateButtons();
+    currentState = Settings;
     break;
   }
   case CalibrateWires:
   {
-    s = waitForConfirm(languageDict[31][language]); // "Calibreer wires?"
-    if (s == Succes)
-    {
-      calibrateWires();
-      currentState = ZetUit;
-    }
-    else if (s == Back)
-      currentState = CalibrateButtons;
-    else
-      currentState = ZetUit;
+    calibrateWires();
+    currentState = Settings;
     break;
   }
   case ZetUit:
   {
+    if (DEBUG)
+      Serial.println("Turning off?");
     s = waitForConfirm(languageDict[32][language]); // "Zet uit"
     if (s == Succes)
     {
       if (DEBUG)
         Serial.println("BOM UIT");
       digitalWrite(relayPin, HIGH);
-      currentState = HergebruikInst;
     }
     else if (s == Back)
     {
-      currentState = CalibrateWires;
     }
     else
     {
       if (DEBUG)
         Serial.println("Bom blijft aan");
-      currentState = HergebruikInst;
     }
+    currentState = Settings;
     break;
   }
   case HergebruikInst:
@@ -162,7 +158,7 @@ void loop()
       currentState = WachtOK;
     }
     else if (s == Back)
-      currentState = ZetUit;
+      currentState = Settings;
     else
       currentState = InstMode;
     break;
@@ -381,7 +377,7 @@ void loop()
   case Reset:
   {
     resetAll();
-    currentState = ZetUit;
+    currentState = HergebruikInst;
     break;
   }
   default:
@@ -540,6 +536,77 @@ void setAantalVragen(uint16_t mode, ConfirmState &s, uint8_t &amQuestions)
   }
   else
     currentState = InstMoeilijkheidVragen;
+}
+
+void setSettingMode()
+{
+  lcd.clear();
+  lcd.print(languageDict[35][language]); // "Selecteer met "
+  lcd.write((byte)0);                    // "✓"
+  uint16_t selected_mode = 0;
+  lcd.setCursor(0, 1);
+  lcd.print(settings[selected_mode][language]);
+  uint8_t buttonCall = getDigit();
+  while (buttonCall != OK && buttonCall != BACK)
+  {
+    if (buttonCall == LEFT)
+    {
+      selected_mode = ((selected_mode + AMOUNT_SETTINGS) - 1) % AMOUNT_SETTINGS;
+      lcd.setCursor(0, 1);
+      lcd.print(settings[selected_mode][language]);
+      wait(LEFT);
+    }
+    else if (buttonCall == RIGHT)
+    {
+      selected_mode = (selected_mode + 1) % AMOUNT_SETTINGS;
+      lcd.setCursor(0, 1);
+      lcd.print(settings[selected_mode][language]);
+      wait(RIGHT);
+    }
+    buttonCall = getDigit();
+  }
+  wait(buttonCall);
+  if (DEBUG)
+  {
+    Serial.print("Buttoncall: ");
+    Serial.println(buttonCall);
+    Serial.print("Selected mode: ");
+    Serial.println(selected_mode);
+  }
+  if (buttonCall == BACK)
+    currentState = HergebruikInst;
+  else if (buttonCall == OK)
+  {
+    switch (selected_mode)
+    {
+    case 0:
+    {
+      if (DEBUG)
+        Serial.println("Selected change language");
+      currentState = ChangeLanguage;
+    }
+    case 1:
+    {
+      if (DEBUG)
+        Serial.println("Selected calibrate buttons");
+      currentState = CalibrateButtons;
+    }
+    case 2:
+    {
+      if (DEBUG)
+        Serial.println("Selected calibrate wires");
+      currentState = CalibrateWires;
+    }
+    case 3:
+    {
+      if (DEBUG)
+        Serial.println("Selected turn off");
+      currentState = ZetUit;
+    }
+    }
+  }
+  if (DEBUG)
+    Serial.println(currentState);
 }
 
 void setInstMode(uint16_t &mode)
@@ -1184,8 +1251,9 @@ void resetAll()
   lcd.clear();
 }
 
-void changeLanguageGetPreset(int *addr)
+ConfirmState changeLanguageGetPreset(int *addr)
 {
+  uint8_t old_lang = language;
   int langAddress = *addr;
   uint8_t lang = EEPROM.read(langAddress);
   *addr += sizeof(lang);
@@ -1197,78 +1265,55 @@ void changeLanguageGetPreset(int *addr)
   }
   readPresetFromEEPROM(*addr, &previousPreset);
   lcd.clear();
-  unsigned long startTime = millis();
-  uint8_t tempLan = language;
-  lcd.print(languageDict[25][tempLan]); // "VERANDER TAAL:"
+
+  lcd.clear();
+  lcd.print(languageDict[25][language]); // "VERANDER TAAL:"
   lcd.setCursor(14, 1);
-  lcd.print(shortLanguages[language]);
+  lcd.write('<');
+  lcd.write('>');
   lcd.setCursor(0, 1);
-  lcd.print(languageDict[1][tempLan]); // "NEE(X) JA("
-  lcd.write((byte)0);                  // "✓"
-  lcd.write(')');                      // ")"
-  uint8_t changeLanguage = getDigit();
-  while (changeLanguage != OK && changeLanguage != BAD)
+  lcd.print(languages[language]);
+  uint8_t nr = getDigit();
+  while (nr != OK && nr != BACK)
   {
-    if ((millis() - startTime) > 3000)
+    if (nr == LEFT || nr == RIGHT)
     {
-      startTime = millis();
-      tempLan++;
-      if (tempLan == AMOUNT_LANGUAGES)
-        tempLan = 0;
-      lcd.clear();
-      lcd.print(languageDict[25][tempLan]); // "VERANDER TAAL:"
-      lcd.setCursor(14, 1);
-      lcd.print(shortLanguages[language]);
-      lcd.setCursor(0, 1);
-      lcd.print(languageDict[1][tempLan]); // "NEE(X) JA(
-      lcd.write((byte)0);                  // "✓"
-      lcd.write(')');                      // ")"
-    }
-    changeLanguage = getDigit();
-  }
-  wait(changeLanguage);
-  if (changeLanguage == OK)
-  {
-    lcd.clear();
-    lcd.print(languageDict[25][language]); // "VERANDER TAAL:"
-    lcd.setCursor(14, 1);
-    lcd.write(174);
-    lcd.write(175);
-    lcd.setCursor(0, 1);
-    lcd.print(languages[language]);
-    uint8_t nr = getDigit();
-    while (nr != OK)
-    {
-      if (nr == 1 || nr == 2)
+      if (nr == LEFT)
       {
-        if (nr == 1)
+        language--;
+        if (language == 255 || language < 0)
         {
-          language--;
-          if (language == 255 || language < 0)
-          {
-            language = AMOUNT_LANGUAGES - 1;
-          }
+          language = AMOUNT_LANGUAGES - 1;
         }
-        else if (nr == 2)
-        {
-          language++;
-          if (language == AMOUNT_LANGUAGES)
-          {
-            language = 0;
-          }
-        }
-        wait(nr);
-        lcd.clear();
-        lcd.print(languageDict[25][language]); // "VERANDER TAAL:"
-        lcd.setCursor(14, 1);
-        lcd.write((char)174);
-        lcd.write((char)175);
-        lcd.setCursor(0, 1);
-        lcd.print(languages[language]);
       }
-      nr = getDigit();
+      else if (nr == RIGHT)
+      {
+        language++;
+        if (language == AMOUNT_LANGUAGES)
+        {
+          language = 0;
+        }
+      }
+      wait(nr);
+      lcd.clear();
+      lcd.print(languageDict[25][language]); // "VERANDER TAAL:"
+      lcd.setCursor(14, 1);
+      lcd.write('<');
+      lcd.write('>');
+      lcd.setCursor(0, 1);
+      lcd.print(languages[language]);
     }
-    wait(OK);
+    nr = getDigit();
   }
-  EEPROM.update(langAddress, language);
+  wait(nr);
+  if (nr == OK)
+  {
+    EEPROM.update(langAddress, language);
+    return Succes;
+  }
+  else
+  {
+    language = old_lang;
+    return Back;
+  }
 }
