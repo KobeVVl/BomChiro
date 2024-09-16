@@ -3,6 +3,8 @@
 
 #define ZETMOEILIJKHEID true
 
+// TODO Fix bij BACK dat mode in rekening wordt genomen
+
 Preset previousPreset;
 
 LiquidCrystal lcd(reset, enable, d4, d5, d6, d7);
@@ -309,7 +311,7 @@ void loop()
     while (d != OK && d != BACK)
       d = getDigit();
     wait(d);
-    currentState = d == OK ? WachtPlantcode : InstPlantcode;
+    currentState = (d == OK) ? WachtPlantcode : InstPlantcode;
     break;
   }
   case WachtStart:
@@ -327,8 +329,10 @@ void loop()
   {
     if (plant(preset.plantTime) == Succes)
       currentState = Main;
-    else
+    else if (plantCode != "")
       currentState = WachtPlantcode;
+    else
+      currentState = WachtOK;
     break;
   }
   case Main:
@@ -341,6 +345,11 @@ void loop()
     case Succes:
     {
       currentState = BomOntmanteld;
+      break;
+    }
+    case Fail:
+    {
+      currentState = BomOntploft;
       break;
     }
     case Back:
@@ -731,6 +740,7 @@ ConfirmState plant(int pressPlant)
     int number = getDigit();
     if (number == BACK)
     {
+      wait(BACK);
       return Back;
     }
     else if (number == OK)
@@ -781,6 +791,8 @@ ConfirmState plant(int pressPlant)
 
 ConfirmState mainProgram(Preset &preset)
 {
+  if (DEBUG)
+    Serial.println("Start main program");
   unsigned int totalTime = preset.time; // Total time to defuse
 
   bool questionsMode = preset.amQuestions > DEFAULT_AMQUESTIONS;
@@ -1083,7 +1095,7 @@ ConfirmState mainProgram(Preset &preset)
         }
       }
       else if (!codeDone && !printWireDone && !printBananaDone)
-        lcd.print(formatCode(enteredCode, codeLength));
+        lcd.print(formatString(enteredCode, codeLength));
       if (printWireDone)
       {
         if ((millis() - wireDoneTime) < showDoneTime)
@@ -1115,14 +1127,14 @@ ConfirmState mainProgram(Preset &preset)
           if (DEBUG)
             Serial.println(question);
           lcd.setCursor(0, 0);
-          lcd.print(formatQuestion(question, 11));
+          lcd.print(formatString(question, 11));
         }
         lcd.setCursor(0, 1);
-        lcd.print(formatCode(enteredAnswer, 16));
+        lcd.print(formatString(enteredAnswer, 16));
       }
     }
   }
-  return ((millis() - startTime) < totalTime * 1000L) ? Succes : Fail;
+  return ((millis() - startTime) < (totalTime * 1000L)) ? Succes : Fail;
 }
 
 uint8_t getDigitSerial()
@@ -1153,20 +1165,10 @@ unsigned int punishment(uint8_t severity)
   return 0;
 }
 
-String formatCode(String code, uint8_t length)
+String formatString(String code, uint8_t length)
 {
   String str = code;
   for (uint8_t i = 0; i < length - code.length(); i++)
-  {
-    str += " ";
-  }
-  return str;
-}
-
-String formatQuestion(String question, uint8_t length)
-{
-  String str = question;
-  for (uint8_t i = 0; i < length - question.length(); i++)
   {
     str += " ";
   }
