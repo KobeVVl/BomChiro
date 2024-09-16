@@ -95,18 +95,13 @@ void loop()
   {
   case Start:
   {
+    readPresetFromEEPROM(&address, &previousPreset);
     currentState = HergebruikInst;
     break;
   }
   case Settings:
   {
     setSettingMode();
-    if (DEBUG)
-    {
-      Serial.println("Settings returned");
-      Serial.print("Next state is: ");
-      Serial.println(currentState);
-    }
     break;
   }
   case ChangeLanguage:
@@ -206,8 +201,10 @@ void loop()
         bananaConf = getBanana();
         currentState = InstAantalVragen;
       }
-      else
+      else if (mode == 0)
         currentState = InstDraad;
+      else
+        currentState = InstTijd;
     }
     else
       currentState = InstAantalVragen;
@@ -311,7 +308,7 @@ void loop()
     while (d != OK && d != BACK)
       d = getDigit();
     wait(d);
-    currentState = (d == OK) ? WachtPlantcode : InstPlantcode;
+    currentState = (d == OK) ? WachtPlantcode : (mode == 1 ? InstPlantcode : InstBanana);
     break;
   }
   case WachtStart:
@@ -338,8 +335,6 @@ void loop()
   case Main:
   {
     s = mainProgram(preset);
-    if (DEBUG)
-      Serial.println("Ran mainProgram");
     switch (s)
     {
     case Succes:
@@ -354,6 +349,7 @@ void loop()
     }
     case Back:
     {
+      wait(BACK);
       currentState = Reset;
       break;
     }
@@ -552,7 +548,7 @@ void setSettingMode()
   lcd.clear();
   lcd.print(languageDict[35][language]); // "Selecteer met "
   lcd.write((byte)0);                    // "✓"
-  uint16_t selected_mode = 0;
+  uint16_t selected_mode = 3;
   lcd.setCursor(0, 1);
   lcd.print(settings[selected_mode][language]);
   uint8_t buttonCall = getDigit();
@@ -614,8 +610,6 @@ void setSettingMode()
     }
     }
   }
-  if (DEBUG)
-    Serial.println(currentState);
 }
 
 void setInstMode(uint16_t &mode)
@@ -623,7 +617,7 @@ void setInstMode(uint16_t &mode)
   lcd.clear();
   lcd.print(languageDict[35][language]); // "Selecteer met "
   lcd.write((byte)0);                    // "✓"
-  uint16_t selected_mode = 0;
+  uint16_t selected_mode = 1;
   lcd.setCursor(0, 1);
   lcd.print(modes[selected_mode][language]);
   uint8_t buttonCall = getDigit();
@@ -842,6 +836,13 @@ ConfirmState mainProgram(Preset &preset)
   lcd.print(languageDict[27 + selected][language]);
   while ((!codeDone || !wireDone || !bananaDone || !questionsDone) && (millis() - startTime) <= totalTime * 1000L)
   {
+    if (turnOffTime > 0 && (millis() - turnOffTime) > 5000L)
+    {
+      // if (DEBUG)
+      //   Serial.println("BOM UIT");
+      // digitalWrite(relayPin, HIGH);
+      return Back;
+    }
     // ------------- WIRE PART ---------------
     if (!wireDone)
     {
@@ -871,7 +872,6 @@ ConfirmState mainProgram(Preset &preset)
         if (!pressed) // Knop net ingedrukt
         {
           pressed = true;
-          number = nr;
           if (nr == LEFT || nr == RIGHT)
           {
             selected = (selected == 0) ? 2 : 0;
@@ -938,14 +938,7 @@ ConfirmState mainProgram(Preset &preset)
               Serial.println("BACK pressed");
             }
           }
-          serialDebugPressed(number, pressed);
-        }
-        else if (turnOffTime > 0 && (millis() - turnOffTime) > 5000L)
-        {
-          // if (DEBUG)
-          //   Serial.println("BOM UIT");
-          // digitalWrite(relayPin, HIGH);
-          return Back;
+          serialDebugPressed(nr, turnOffTime);
         }
       }
       else // Geen knop ingedrukt
@@ -1001,10 +994,22 @@ ConfirmState mainProgram(Preset &preset)
           }
           else if (nr == BAD)
           {
-            answerIndex = 0;
-            enteredAnswer = "";
+            if (DEBUG)
+            {
+              Serial.println("BAD pressed");
+            }
+            codeIndex = 0;
+            enteredCode = "";
           }
-          serialDebugPressed(number, pressed);
+          else if (nr == BACK)
+          {
+            turnOffTime = millis();
+            if (DEBUG)
+            {
+              Serial.println("BACK pressed");
+            }
+          }
+          serialDebugPressed(number, turnOffTime);
         }
       }
       else
@@ -1192,8 +1197,6 @@ ConfirmState getNumberString(uint8_t lengte, uint8_t posX, uint8_t posY, String 
       }
       else
       {
-        if (DEBUG)
-          Serial.println(waarde);
         string = string + String(waarde);
       }
       String printStr = string;
@@ -1201,8 +1204,6 @@ ConfirmState getNumberString(uint8_t lengte, uint8_t posX, uint8_t posY, String 
       {
         printStr += " ";
       }
-      if (DEBUG)
-        Serial.println(printStr);
       lcd.setCursor(posX, posY);
       lcd.print(printStr);
       wait(waarde);
@@ -1236,11 +1237,6 @@ ConfirmState getNumberString(uint8_t lengte, uint8_t posX, uint8_t posY, String 
     else if (waarde == BACK)
       return Back;
   }
-  if (DEBUG)
-  {
-    Serial.print("Waarde:");
-    Serial.println(string);
-  }
   *code = string;
   return Succes;
 }
@@ -1260,13 +1256,6 @@ ConfirmState changeLanguageGetPreset(int *addr)
   uint8_t lang = EEPROM.read(langAddress);
   *addr += sizeof(lang);
   language = (lang < AMOUNT_LANGUAGES) ? lang : EN;
-  if (DEBUG)
-  {
-    Serial.print("Amount of presets stored: ");
-    Serial.println(amPresets);
-  }
-  readPresetFromEEPROM(*addr, &previousPreset);
-  lcd.clear();
 
   lcd.clear();
   lcd.print(languageDict[25][language]); // "VERANDER TAAL:"
